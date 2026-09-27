@@ -25,6 +25,7 @@ CREATE TABLE images (
     date DATE,
     orientation INTEGER,
     fichier VARCHAR(100),
+    likes INTEGER,
 
     FOREIGN KEY (id_auteur) REFERENCES auteurs(id_auteur)
     ON UPDATE CASCADE ON DELETE Set Null,
