@@ -1,10 +1,10 @@
 const { Client } = require('pg');
 
 const client = new Client({
-    user: 'tgiovannange', // Changer en tgiovannange pour le CREMI
-    password: '', 
+    user: 'postgres', 
+    password: 'root', 
     database: 'application_image',
-    port: 17344 // mettre 17344 pour le CREMI
+    port: 5432 
 });
 
 client.connect()
