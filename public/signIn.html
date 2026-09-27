@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+
+<html>
+
+    <head>
+
+        <title>Se connecter</title>
+        
+        <meta charset="utf-8">
+        
+        <link rel="stylesheet" href="/public/styleSignForm.css">
+
+    </head>
+
+    <body>
+
+        <h1>Se connecter</h1>
+
+        <form action='/signin' method="POST">
+            <label for="username">Nom d'utilisateur : </label>
+            <input type="text" name="username" id="username" required>
+            <label for="username">Mot de passe : </label>
+            <input type="password" name="password" id="password" required>
+            <input type="submit" value="Se connecter">
+        </form>
+
+        <a href="/" class="home-link">Menu</a>
+
+    </body>
+
+</html>
