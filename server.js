@@ -27,6 +27,15 @@ let sessions = [];
 
 let nbLikes = 0;
 
+function parseImageId(value) {
+    if (!/^\d+$/.test(value)) {
+        return null;
+    }
+
+    const imageId = Number(value);
+    return Number.isSafeInteger(imageId) && imageId > 0 ? imageId : null;
+}
+
 server.on('request', async (req, res) => {
 
     let hasCookieWithSessionId = false;
@@ -63,18 +72,23 @@ server.on('request', async (req, res) => {
 
         req.on("end", async () => {
             try {
-                const params = data.split("&");
-                const username = params[0].split("=")[1];
-                const password = params[1].split("=")[1];
-                const findQuery = `SELECT COUNT(username) FROM accounts WHERE username='${username}'`; 
-                const findResult = await client.query(findQuery);
+                const params = new URLSearchParams(data);
+                const username = params.get('username');
+                const password = params.get('password');
+                if (!username || !password) {
+                    res.statusCode = 400;
+                    return res.end('Données invalides');
+                }
+
+                const findQuery = 'SELECT COUNT(username) FROM accounts WHERE username = $1';
+                const findResult = await client.query(findQuery, [username]);
                 const USERNAME_IS_UNKNOWN = 0;
 
                 if (parseInt(findResult.rows[0].count) === USERNAME_IS_UNKNOWN) {
                     const salt = crypto.randomBytes(16).toString('hex');
                     const hash = crypto.createHash("sha256").update(password).update(salt).digest("hex");
-                    const insertQuery = `INSERT INTO accounts (username, salt, hash) VALUES ('${username}', decode('${salt}','hex') , decode('${hash}','hex'));`; 
-                    await client.query(insertQuery); 
+                    const insertQuery = "INSERT INTO accounts (username, salt, hash) VALUES ($1, decode($2, 'hex'), decode($3, 'hex'))";
+                    await client.query(insertQuery, [username, salt, hash]);
                     res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>La création de compte a été un succés</h1><a href="/public/signIn.html">Vous pouvez maintenant vous connectez</a></body></html>`);
                 } else {
                     res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><h1>Création du compte échoué </h1><div>Ce nom d'utilisateur est déjà pris !</div><a href="/public/signUp.html">Réessayez</a></body></html>`);
@@ -98,11 +112,16 @@ server.on('request', async (req, res) => {
         req.on("end", async () => {
 
             try {
-                const params = data.split("&");
-                const username = params[0].split("=")[1];
-                const password = params[1].split("=")[1];
-                const findQuery = `SELECT username, encode(salt,'hex') as salt, encode(hash,'hex') AS hash FROM accounts WHERE username='${username}'`; 
-                const findResult = await client.query(findQuery);
+                const params = new URLSearchParams(data);
+                const username = params.get('username');
+                const password = params.get('password');
+                if (!username || !password) {
+                    res.statusCode = 400;
+                    return res.end('Données invalides');
+                }
+
+                const findQuery = "SELECT username, encode(salt, 'hex') AS salt, encode(hash, 'hex') AS hash FROM accounts WHERE username = $1";
+                const findResult = await client.query(findQuery, [username]);
                 const USERNAME_IS_UNKNOWN = 0;
 
                 if (parseInt(findResult.rows.length) !== USERNAME_IS_UNKNOWN) {
@@ -161,11 +180,11 @@ server.on('request', async (req, res) => {
             const sqlResult = await client.query(sqlQuery);
             const idImage = sqlResult.rows.map(row => row.id_image);
 
-            const sqlQueryImagesLiked = `SELECT id_image FROM accounts_images_like WHERE username = '${sessions[sessionId].username}'`;
-            const sqlResultImagesLiked = await client.query(sqlQueryImagesLiked);
-            const idImagesLiked = sqlResultImagesLiked.rows.map(row => row.id_image);
-
             if (sessions[sessionId] && sessions[sessionId].username) {
+                const sqlQueryImagesLiked = 'SELECT id_image FROM accounts_images_like WHERE username = $1';
+                const sqlResultImagesLiked = await client.query(sqlQueryImagesLiked, [sessions[sessionId].username]);
+                const idImagesLiked = sqlResultImagesLiked.rows.map(row => row.id_image);
+
                 idImage.forEach(idNumber => {
 
                     html += `
@@ -204,15 +223,19 @@ server.on('request', async (req, res) => {
     
     else if (req.url.startsWith('/page-image/')) {
 
-        let imageNumber = req.url.split('/')[2];
+        const imageNumber = parseImageId(req.url.split('/')[2]);
+        if (imageNumber === null) {
+            res.statusCode = 400;
+            return res.end('Identifiant d’image invalide');
+        }
 
         try {
-            const sqlQuery = `SELECT id_auteur, nom FROM IMAGES WHERE id_image = ${imageNumber}`;
-            const sqlResult = await client.query(sqlQuery);
+            const sqlQuery = 'SELECT id_auteur, nom FROM IMAGES WHERE id_image = $1';
+            const sqlResult = await client.query(sqlQuery, [imageNumber]);
 
             const numberAuthor = sqlResult.rows[0].id_auteur;
-            const sqlAuthorQuery = `SELECT DISTINCT A.nom AS nomAuteur, A.prenom AS prenomAuteur FROM AUTEURS A JOIN IMAGES I ON A.id_auteur = I.id_auteur WHERE A.id_auteur = ${numberAuthor}`;
-            const sqlResultAuthor = await client.query(sqlAuthorQuery);
+            const sqlAuthorQuery = 'SELECT DISTINCT A.nom AS nomAuteur, A.prenom AS prenomAuteur FROM AUTEURS A JOIN IMAGES I ON A.id_auteur = I.id_auteur WHERE A.id_auteur = $1';
+            const sqlResultAuthor = await client.query(sqlAuthorQuery, [numberAuthor]);
             const authorName = sqlResultAuthor.rows[0].nomauteur;
             const authorFirstName = sqlResultAuthor.rows[0].prenomauteur;
 
@@ -240,8 +263,8 @@ server.on('request', async (req, res) => {
             <div id="comment">
             <h1> Commentaires </h1>`;
 
-            const sqlQueryComments = `SELECT texte FROM COMMENTAIRES WHERE id_image = ${imageNumber}`;
-            const sqlResultComments = await client.query(sqlQueryComments);
+            const sqlQueryComments = 'SELECT texte FROM COMMENTAIRES WHERE id_image = $1';
+            const sqlResultComments = await client.query(sqlQueryComments, [imageNumber]);
             const comments = sqlResultComments.rows.map(row => row.texte);
 
             comments.forEach(comment => {
@@ -279,13 +302,16 @@ server.on('request', async (req, res) => {
         req.on("end", async () => {
 
             try {
-                const paramValeur = donnees.split("&");
-                const imageNumber = paramValeur[0].split("=")[1];
-                let comment = decodeURIComponent(paramValeur[1].split("=")[1]);
-                comment = comment.replace(/\+/g, " ");
+                const params = new URLSearchParams(donnees);
+                const imageNumber = parseImageId(params.get('image-number'));
+                const comment = params.get('description');
+                if (imageNumber === null || !comment) {
+                    res.statusCode = 400;
+                    return res.end('Données invalides');
+                }
 
-                const sqlQuery = `INSERT INTO COMMENTAIRES(id_image, texte) VALUES (${imageNumber}, '${comment}')`;
-                await client.query(sqlQuery);
+                const sqlQuery = 'INSERT INTO COMMENTAIRES(id_image, texte) VALUES ($1, $2)';
+                await client.query(sqlQuery, [imageNumber, comment]);
 
                 res.statusCode = 302;
                 res.setHeader('Location', `/page-image/${imageNumber}`);
@@ -304,8 +330,14 @@ server.on('request', async (req, res) => {
     else if (req.method == "GET" && req.url.startsWith("/like/") && sessions[sessionId] && sessions[sessionId].username) {
 
         try {
-            const sqlQuery = `INSERT INTO accounts_images_like(username, id_image) VALUES ('${sessions[sessionId].username}', ${req.url.split('/')[2]})`;
-            await client.query(sqlQuery);
+            const imageNumber = parseImageId(req.url.split('/')[2]);
+            if (imageNumber === null) {
+                res.statusCode = 400;
+                return res.end('Identifiant d’image invalide');
+            }
+
+            const sqlQuery = 'INSERT INTO accounts_images_like(username, id_image) VALUES ($1, $2)';
+            await client.query(sqlQuery, [sessions[sessionId].username, imageNumber]);
 
             res.statusCode = 302;
             res.setHeader('Location', '/images');
@@ -322,9 +354,9 @@ server.on('request', async (req, res) => {
     else if (req.method == "GET" && req.url == "/nbLikes" && sessions[sessionId] && sessions[sessionId].username) {
 
         try {
-            const sqlQuery = `SELECT COUNT(username) as nbLikes FROM accounts_images_like WHERE username = '${sessions[sessionId].username}'`;
+            const sqlQuery = 'SELECT COUNT(username) AS nbLikes FROM accounts_images_like WHERE username = $1';
 
-            const nbLikes = await client.query(sqlQuery);
+            const nbLikes = await client.query(sqlQuery, [sessions[sessionId].username]);
             const realNbLikes = nbLikes.rows[0].nblikes;
             res.end(`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${realNbLikes}</body></html>`);
         }
